@@ -1,7 +1,12 @@
 # 📊 Procesar Registros CDR (Telcel)
-
-[![Excel VBA](https://shields.io)](https://microsoft.com)
-[![KML Enabled](https://shields.io)](https://google.com)
+<p align="center">
+<a href="https://microsoft.com">
+  <img src="/icon/msexcel.webp" alt="Excel VBA" height="100">
+</a>
+<a href="https://google.com">
+  <img src="/icon/kml.png" alt="KML Enabled" height="100">
+</a>
+</p>
 
 Macro de Microsoft Excel VBA diseñada para la limpieza, normalización, clasificación y análisis estructurado de registros telefónicos (CDR) provenientes de exportaciones de **Telcel**.
 
