@@ -1,3 +1,4 @@
+' Autor: Ing. Carlos Padilla (DarkCobra7423) - github.com/DarkCobra7423
 Attribute VB_Name = "mdlProcesamientoTelcel"
 Option Explicit
 
@@ -52,11 +53,11 @@ Private Const NOMBRE_HOJA_PROCESADO As String = "Procesado"
 Private Const NOMBRE_HOJA_FRECUENCIAS As String = "Frecuencias de comunicacion"
 
 Private Const DIBUJAR_SECTORES As Boolean = True
-Private Const RADIO_SECTOR_M As Double = 500        ' radio de la cuña en metros
+Private Const RADIO_SECTOR_M As Double = 800        ' radio de la cuña en metros
 Private Const ANCHO_SECTOR_GRADOS As Double = 120   ' apertura de la cuña
 Private Const PI_VALOR As Double = 3.14159265358979
 
-Public Sub ProcesarRegistrosTelcel()
+Public Sub ProcesarCDRTelcel()
 
     Dim wsOriginal As Worksheet
     Dim wsProcesado As Worksheet
@@ -94,11 +95,16 @@ Public Sub ProcesarRegistrosTelcel()
 
     ConfigurarEntornoRapido False
 
-    If MsgBox("¿Deseas generar el archivo KML con las antenas?", vbYesNo + vbQuestion, "KML") = vbYes Then
+    If MsgBox(ChrW(191)&"Deseas generar el archivo KML con las antenas?", vbYesNo + vbQuestion, "KML") = vbYes Then
         GenerarKML wsProcesado.Parent.Worksheets(NOMBRE_HOJA_FRECUENCIAS), "P1"
     End If
 
-    MsgBox "El procesamiento y la creacion de las tablas de resultados han finalizado exitosamente.", vbInformation
+    'MsgBox "El procesamiento y la creacion de las tablas de resultados han finalizado exitosamente.", vbInformation
+    MsgBox "El procesamiento y la creaci" & ChrW(243) & "n de las tablas de resultados han finalizado exitosamente." & vbCrLf & vbCrLf & _
+          "Ing. Carlos Padilla - DarkCobra7423" & vbCrLf & _
+          "GitHub: https://github.com/DarkCobra7423/", _
+          vbInformation, "Procesamiento finalizado"
+    Exit Sub
     Exit Sub
 
 ErrorHandler:
@@ -252,7 +258,7 @@ Private Sub EnriquecerDatos(ByVal ws As Worksheet, ByVal headerRow As Long, ByVa
     Dim datos As Variant
     Dim i As Long
     Dim numF As String, numG As String
-    Dim horaTexto As String
+    'Dim horaTexto As String
     Dim horaNumero As Variant
     Dim latitud As String, longitud As String
 
@@ -278,8 +284,9 @@ Private Sub EnriquecerDatos(ByVal ws As Worksheet, ByVal headerRow As Long, ByVa
             datos(i, COL_DIA) = ""
         End If
 
-        horaTexto = Trim(CStr(datos(i, COL_HORA)))
-        horaNumero = ExtraerHora24(horaTexto)
+        'horaTexto = Trim(CStr(datos(i, COL_HORA)))
+        'horaNumero = ExtraerHora24(horaTexto)
+        horaNumero = ExtraerHora24(datos(i, COL_HORA))
         datos(i, COL_HORA24) = horaNumero
         datos(i, COL_ETAPA) = ObtenerEtapaDelDia(horaNumero)
 
@@ -349,49 +356,47 @@ Private Function SafeToDouble(ByVal valor As Variant) As Double
     On Error GoTo 0
 End Function
 
-Private Function ExtraerHora24(ByVal horaTexto As String) As Variant
-    Dim horaStr As String
+Private Function ExtraerHora24(ByVal horaValor As Variant) As Variant
+    Dim v As Double
+    Dim segundos As Long
+    Dim s As String, clean As String
     Dim partes() As String
-    Dim horaNum As Integer
+    Dim horaNum As Long
+    Dim esPM As Boolean, esAM As Boolean
 
-    If horaTexto = "" Then
-        ExtraerHora24 = ""
-        Exit Function
-    End If
+    ExtraerHora24 = ""
+    If IsError(horaValor) Or IsEmpty(horaValor) Or IsNull(horaValor) Then Exit Function
 
-    If IsDate(horaTexto) Then
-        ExtraerHora24 = Hour(CDate(horaTexto))
-        Exit Function
-    End If
+    ' Caso 1: hora real (Date) o numero -> se lee el valor, sin pasar por texto
+    Select Case VarType(horaValor)
+        Case vbDate, vbDouble, vbSingle, vbCurrency, vbDecimal, vbLong, vbInteger
+            v = CDbl(horaValor)
+            If v < 0 Then Exit Function
+            If v = Int(v) Then
+                ' entero: si es 0-23 se toma como hora ya calculada
+                If v <= 23 Then ExtraerHora24 = CLng(v)
+                Exit Function
+            End If
+            segundos = CLng((v - Int(v)) * 86400)      ' redondeo al segundo mas cercano
+            If segundos >= 86400 Then segundos = 0
+            ExtraerHora24 = segundos \ 3600
+            Exit Function
+    End Select
 
-    horaStr = LCase(horaTexto)
-    horaStr = Replace(horaStr, "a. m.", "AM")
-    horaStr = Replace(horaStr, "p. m.", "PM")
-    horaStr = Replace(horaStr, "a.m.", "AM")
-    horaStr = Replace(horaStr, "p.m.", "PM")
-    horaStr = Replace(horaStr, "am", "AM")
-    horaStr = Replace(horaStr, "pm", "PM")
+    ' Caso 2: texto tipo "7:10:48 PM", "19:10:48" o "7:10 p. m."
+    s = Trim(CStr(horaValor))
+    If InStr(s, ":") = 0 Then Exit Function            ' sin ":" no es una hora reconocible
 
-    If IsDate(horaStr) Then
-        ExtraerHora24 = Hour(CDate(horaStr))
-        Exit Function
-    End If
+    clean = LCase(Replace(Replace(Replace(s, ChrW(160), ""), " ", ""), ".", ""))
+    esPM = (Right(clean, 2) = "pm")
+    esAM = (Right(clean, 2) = "am")
 
-    partes = Split(horaStr, ":")
-    If UBound(partes) >= 0 And IsNumeric(partes(0)) Then
-        horaNum = CInt(Val(partes(0)))
-        If InStr(horaStr, "PM") > 0 And horaNum < 12 Then
-            horaNum = horaNum + 12
-        ElseIf InStr(horaStr, "AM") > 0 And horaNum = 12 Then
-            horaNum = 0
-        End If
-        If horaNum >= 0 And horaNum <= 23 Then
-            ExtraerHora24 = horaNum
-        Else
-            ExtraerHora24 = ""
-        End If
-    Else
-        ExtraerHora24 = ""
+    partes = Split(clean, ":")
+    If IsNumeric(partes(0)) Then
+        horaNum = CLng(Val(partes(0)))
+        If esPM And horaNum < 12 Then horaNum = horaNum + 12
+        If esAM And horaNum = 12 Then horaNum = 0
+        If horaNum >= 0 And horaNum <= 23 Then ExtraerHora24 = horaNum
     End If
 End Function
 
@@ -404,7 +409,7 @@ Private Function ObtenerEtapaDelDia(ByVal hora24 As Variant) As String
 
     Select Case CInt(hora24)
         Case 0 To 5: ObtenerEtapaDelDia = "Madrugada"
-        Case 6 To 11: ObtenerEtapaDelDia = "Mañana"
+        Case 6 To 11: ObtenerEtapaDelDia = "Ma" & ChrW(241) & "ana"
         Case 12 To 17: ObtenerEtapaDelDia = "Tarde"
         Case 18 To 23: ObtenerEtapaDelDia = "Noche"
         Case Else: ObtenerEtapaDelDia = ""
@@ -418,7 +423,8 @@ Private Sub CrearHojaFrecuencias(ByVal wsProcesado As Worksheet, ByVal headerRow
     Dim dataRange As Range
     Dim errorComunicaciones As String
     Dim errorConexiones As String
-
+    Dim errorCoordEtapa As String
+    
     Application.DisplayAlerts = False
     On Error Resume Next
     Worksheets(NOMBRE_HOJA_FRECUENCIAS).Delete
@@ -433,6 +439,7 @@ Private Sub CrearHojaFrecuencias(ByVal wsProcesado As Worksheet, ByVal headerRow
 
     errorComunicaciones = IntentarEjecutarTarea("Comunicaciones", wsProcesado, headerRow, lastRow, wsFrecuencias, dataRange)
     errorConexiones = IntentarEjecutarTarea("Conexiones", wsProcesado, headerRow, lastRow, wsFrecuencias, dataRange)
+    errorCoordEtapa = IntentarEjecutarTarea("CoordenadasEtapa", wsProcesado, headerRow, lastRow, wsFrecuencias, dataRange)
 
     FormatearHojaFrecuencias wsFrecuencias
 
@@ -453,6 +460,8 @@ Private Function IntentarEjecutarTarea(ByVal nombre As String, ByVal wsProcesado
             CrearPivotComunicaciones wsDestino, dataRange
         Case "Conexiones"
             GenerarTablaConexiones wsProcesado, headerRow, lastRow, wsDestino, "P1"
+        Case "CoordenadasEtapa"
+            CrearPivotCoordenadasPorEtapa wsDestino, dataRange
     End Select
     IntentarEjecutarTarea = ""
     Exit Function
@@ -467,6 +476,8 @@ Private Sub CrearPivotComunicaciones(ByVal wsDestino As Worksheet, ByVal dataRan
     Dim pt As PivotTable
     Dim pi As PivotItem
     Dim subtiposVisibles As Variant
+    Dim orden As Variant
+    Dim n As Long
 
     subtiposVisibles = Array(SUB_LLAMADA_ENTRANTE, SUB_LLAMADA_SALIENTE, SUB_MENSAJE_ENTRANTE, SUB_MENSAJE_SALIENTE)
 
@@ -474,7 +485,12 @@ Private Sub CrearPivotComunicaciones(ByVal wsDestino As Worksheet, ByVal dataRan
     Set pt = pc.CreatePivotTable(TableDestination:=wsDestino.Range("A1"), TableName:="TablaDinamicaComunicaciones")
 
     With pt
+        '.PivotFields("NUMB").Orientation = xlRowField
+        '.PivotFields("SUBTIPO").Orientation = xlColumnField
         .PivotFields("NUMB").Orientation = xlRowField
+        .PivotFields("NUMB").Position = 1
+        .PivotFields("ETAPA").Orientation = xlRowField
+        .PivotFields("ETAPA").Position = 2
         .PivotFields("SUBTIPO").Orientation = xlColumnField
         With .PivotFields("TIPO")
             .Orientation = xlDataField
@@ -483,14 +499,20 @@ Private Sub CrearPivotComunicaciones(ByVal wsDestino As Worksheet, ByVal dataRan
         End With
         
         .PivotFields("FECHA").Orientation = xlPageField
-        .PivotFields("ETAPA").Orientation = xlPageField
+        '.PivotFields("ETAPA").Orientation = xlPageField
         .PivotFields("DIA").Orientation = xlPageField
-        .PivotFields("HORA").Orientation = xlPageField
+        .PivotFields("HORA 24").Orientation = xlPageField
 
         For Each pi In .PivotFields("SUBTIPO").PivotItems
             pi.Visible = EstaEnLista(pi.Name, subtiposVisibles)
         Next pi
 
+        orden = Array("Madrugada", "Ma" & ChrW(241) & "ana", "Tarde", "Noche")
+        On Error Resume Next        ' si una etapa no existe en los datos, se omite
+            For n = 0 To 3
+                .PivotFields("ETAPA").PivotItems(orden(n)).Position = n + 1
+            Next n
+        On Error GoTo 0
         .RowAxisLayout xlTabularRow
         .PivotFields("NUMB").AutoSort xlDescending, "FRECUENCIA"
         .ColumnGrand = True
@@ -501,22 +523,21 @@ End Sub
 Private Sub GenerarTablaConexiones(ByVal wsProcesado As Worksheet, ByVal headerRow As Long, ByVal lastRow As Long, _
                                     ByVal wsDestino As Worksheet, ByVal celdaInicio As String)
 
-    Dim subtipoArr As Variant, btsArr As Variant, azimuthArr As Variant
-    Dim diccionario As Object   ' Scripting.Dictionary, enlace tardio (CreateObject):
-                                ' asi no se necesita activar ninguna referencia en
-                                ' Herramientas > Referencias para que la macro funcione
-                                ' en otra PC.
+    Dim subtipoArr As Variant, btsArr As Variant, azimuthArr As Variant, etapaArr As Variant
+    Dim diccionario As Object, dicPernocta As Object
     Dim subtiposValidos As Variant
     Dim i As Long
     Dim clave As String
-    Dim coordenada As String, azimuth As String
+    Dim coordenada As String, azimuth As String, etapaTxt As String
     Dim claves() As String
     Dim frecuencias() As Long
     Dim totalUnicos As Long
+    Dim totalNocturnos As Long
     Dim idx As Long
     Dim k As Variant
     Dim partes() As String
     Dim celdaSalida As Range
+    Dim pern As Long
 
     subtiposValidos = Array(SUB_LLAMADA_ENTRANTE, SUB_LLAMADA_SALIENTE, SUB_MENSAJE_ENTRANTE, _
                              SUB_MENSAJE_SALIENTE, SUB_DATOS, SUB_DATOS_WIFI)
@@ -524,18 +545,32 @@ Private Sub GenerarTablaConexiones(ByVal wsProcesado As Worksheet, ByVal headerR
     subtipoArr = wsProcesado.Range(wsProcesado.Cells(headerRow + 1, COL_SUBTIPO), wsProcesado.Cells(lastRow, COL_SUBTIPO)).Value
     btsArr = wsProcesado.Range(wsProcesado.Cells(headerRow + 1, COL_BTS), wsProcesado.Cells(lastRow, COL_BTS)).Value
     azimuthArr = wsProcesado.Range(wsProcesado.Cells(headerRow + 1, COL_AZIMUTH), wsProcesado.Cells(lastRow, COL_AZIMUTH)).Value
+    etapaArr = wsProcesado.Range(wsProcesado.Cells(headerRow + 1, COL_ETAPA), wsProcesado.Cells(lastRow, COL_ETAPA)).Value
 
     Set diccionario = CreateObject("Scripting.Dictionary")
+    Set dicPernocta = CreateObject("Scripting.Dictionary")
 
     For i = 1 To UBound(subtipoArr, 1)
         coordenada = Trim(CStr(btsArr(i, 1)))
         If coordenada <> "" And EstaEnLista(CStr(subtipoArr(i, 1)), subtiposValidos) Then
             azimuth = Trim(CStr(azimuthArr(i, 1)))
             clave = coordenada & "||" & azimuth
+
             If diccionario.Exists(clave) Then
                 diccionario(clave) = diccionario(clave) + 1
             Else
                 diccionario.Add clave, 1
+            End If
+
+            ' Pernocta: registros en Noche (18-23) o Madrugada (0-5)
+            etapaTxt = LCase(Trim(CStr(etapaArr(i, 1))))
+            If etapaTxt = "noche" Or etapaTxt = "madrugada" Then
+                totalNocturnos = totalNocturnos + 1
+                If dicPernocta.Exists(clave) Then
+                    dicPernocta(clave) = dicPernocta(clave) + 1
+                Else
+                    dicPernocta.Add clave, 1
+                End If
             End If
         End If
     Next i
@@ -544,6 +579,11 @@ Private Sub GenerarTablaConexiones(ByVal wsProcesado As Worksheet, ByVal headerR
     If totalUnicos = 0 Then
         wsDestino.Range(celdaInicio).Value = "No se encontraron coordenadas validas para mostrar."
         Exit Sub
+    End If
+
+    If totalNocturnos = 0 Then
+        MsgBox "Aviso: no se encontro ningun registro con ETAPA 'Noche' o 'Madrugada'. " & _
+               "Revisa las columnas HORA 24 y ETAPA de la hoja Procesado; PERNOCTA saldra en cero.", vbExclamation
     End If
 
     ReDim claves(0 To totalUnicos - 1)
@@ -561,16 +601,28 @@ Private Sub GenerarTablaConexiones(ByVal wsProcesado As Worksheet, ByVal headerR
     celdaSalida.Offset(0, 0).Value = "COORDENADAS"
     celdaSalida.Offset(0, 1).Value = "AZIMUTH"
     celdaSalida.Offset(0, 2).Value = "FRECUENCIA"
+    celdaSalida.Offset(0, 3).Value = "PERNOCTA (REGISTROS 18:00-05:59)"
+    celdaSalida.Offset(0, 4).Value = "% NOCTURNO"
 
     wsDestino.Range(celdaSalida.Offset(1, 0), celdaSalida.Offset(totalUnicos, 0)).NumberFormat = "@"
     wsDestino.Range(celdaSalida.Offset(1, 1), celdaSalida.Offset(totalUnicos, 1)).NumberFormat = "@"
+    wsDestino.Range(celdaSalida.Offset(1, 4), celdaSalida.Offset(totalUnicos, 4)).NumberFormat = "0%"
 
     For idx = 0 To totalUnicos - 1
         partes = Split(claves(idx), "||")
         celdaSalida.Offset(idx + 1, 0).Value = partes(0)                                  ' Coordenadas
         celdaSalida.Offset(idx + 1, 1).Value = IIf(UBound(partes) >= 1, partes(1), "")     ' Azimuth
         celdaSalida.Offset(idx + 1, 2).Value = frecuencias(idx)                           ' Frecuencia
+
+        If dicPernocta.Exists(claves(idx)) Then pern = dicPernocta(claves(idx)) Else pern = 0
+        celdaSalida.Offset(idx + 1, 3).Value = pern                                       ' Pernocta
+        If frecuencias(idx) > 0 Then
+            celdaSalida.Offset(idx + 1, 4).Value = Round(pern / frecuencias(idx), 2)      ' % nocturno
+        Else
+            celdaSalida.Offset(idx + 1, 4).Value = 0
+        End If
     Next idx
+    'wsDestino.Range("P" & wsDestino.Rows.Count).End(xlUp).Offset(2, 0).Value = "Generado con macro de Ing. Carlos Padilla - DarkCobra7423"
 End Sub
 
 Private Sub OrdenarDescendentePorFrecuencia(ByRef claves() As String, ByRef frecuencias() As Long)
@@ -689,9 +741,13 @@ Private Sub GenerarKML(ByVal wsFrecuencias As Worksheet, ByVal celdaInicio As St
     End If
 
     kml = "<?xml version=""1.0"" encoding=""UTF-8""?>" & vbCrLf & _
-          "<kml xmlns=""http://www.opengis.net/kml/2.2""><Document>" & vbCrLf & _
-          "<name>Antenas CDR</name>" & vbCrLf & _
-          "<Folder><name>Antenas</name>" & vbCrLf & kmlAntenas & "</Folder>" & vbCrLf
+        "<!-- Generado con macro de Ing. Carlos Padilla - DarkCobra7423 - https://github.com/DarkCobra7423/ -->" & vbCrLf & _
+        "<kml xmlns=""http://www.opengis.net/kml/2.2"" xmlns:atom=""http://www.w3.org/2005/Atom""><Document>" & vbCrLf & _
+        "<name>Antenas CDR</name>" & vbCrLf & _
+        "<atom:author><atom:name>Ing. Carlos Padilla - DarkCobra7423</atom:name></atom:author>" & vbCrLf & _
+        "<atom:link href=""https://github.com/DarkCobra7423/""/>" & vbCrLf & _
+        "<description>" & EscaparXML("Generado con macro de Ing. Carlos Padilla - DarkCobra7423 - https://github.com/DarkCobra7423/") & "</description>" & vbCrLf & _
+        "<Folder><name>Antenas</name>" & vbCrLf & kmlAntenas & "</Folder>" & vbCrLf
     If kmlSectores <> "" Then
         kml = kml & "<Folder><name>Sectores</name>" & vbCrLf & kmlSectores & "</Folder>" & vbCrLf
     End If
@@ -894,7 +950,7 @@ Private Sub FormatearHojaFrecuencias(ByVal ws As Worksheet)
 
     ultimaFila = ws.Cells(ws.Rows.Count, "P").End(xlUp).Row
     If ultimaFila >= 1 Then
-        Set hdr = ws.Range("P1:R1")
+        Set hdr = ws.Range("P1:T1")
         With hdr
             .Interior.Color = colorEncabezado
             .Font.Color = vbWhite
@@ -903,12 +959,12 @@ Private Sub FormatearHojaFrecuencias(ByVal ws As Worksheet)
         End With
 
         If ultimaFila > 1 Then
-            Set cuerpo = ws.Range("P2:R" & ultimaFila)
+            Set cuerpo = ws.Range("P2:T" & ultimaFila)
             With cuerpo
                 .Borders.LineStyle = xlContinuous
                 .Borders.Color = RGB(191, 191, 191)
             End With
-            ws.Range("Q2:R" & ultimaFila).HorizontalAlignment = xlCenter
+            ws.Range("Q2:T" & ultimaFila).HorizontalAlignment = xlCenter
         End If
         hdr.Borders.LineStyle = xlContinuous
         hdr.Borders.Color = RGB(191, 191, 191)
@@ -918,13 +974,46 @@ Private Sub FormatearHojaFrecuencias(ByVal ws As Worksheet)
 
     ws.Activate
     ActiveWindow.DisplayGridlines = False
-    ws.Range("A1:R35").Select
+    ws.Range("A1:T35").Select
     ActiveWindow.Zoom = True                 ' ajusta el zoom a la seleccion
     If ActiveWindow.Zoom > 120 Then ActiveWindow.Zoom = 120
     If ActiveWindow.Zoom < 60 Then ActiveWindow.Zoom = 60
     ActiveWindow.ScrollRow = 1
     ActiveWindow.ScrollColumn = 1
     ws.Range("A1").Select
+    ws.Range("A" & ws.Rows.Count).End(xlUp).Offset(2, 0).Value = "Generado con macro de Ing. Carlos Padilla - DarkCobra7423"
 
     On Error GoTo 0
+End Sub
+
+Private Sub CrearPivotCoordenadasPorEtapa(ByVal wsDestino As Worksheet, ByVal dataRange As Range)
+    Dim pc As PivotCache
+    Dim pt As PivotTable
+    Dim pi As PivotItem
+    Dim subtiposValidos As Variant
+
+    subtiposValidos = Array(SUB_LLAMADA_ENTRANTE, SUB_LLAMADA_SALIENTE, SUB_MENSAJE_ENTRANTE, _
+                            SUB_MENSAJE_SALIENTE, SUB_DATOS, SUB_DATOS_WIFI)
+
+    Set pc = wsDestino.Parent.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=dataRange)
+    'Set pt = pc.CreatePivotTable(TableDestination:=wsDestino.Range("W1"), TableName:="TablaDinamicaCoordenadas")
+
+    With pt
+        .PivotFields("BTS").Orientation = xlRowField
+        .PivotFields("AZIMUTH").Orientation = xlRowField
+        With .PivotFields("TIPO")
+            .Orientation = xlDataField
+            .Function = xlCount
+            .Name = "FRECUENCIA "
+        End With
+        .PivotFields("ETAPA").Orientation = xlPageField
+        .PivotFields("ETAPA").EnableMultiplePageItems = True   ' permite marcar varias etapas
+        .PivotFields("SUBTIPO").Orientation = xlPageField
+        .PivotFields("SUBTIPO").EnableMultiplePageItems = True
+        For Each pi In .PivotFields("SUBTIPO").PivotItems
+            pi.Visible = EstaEnLista(pi.Name, subtiposValidos)
+        Next pi
+        .RowAxisLayout xlTabularRow
+        .PivotFields("BTS").AutoSort xlDescending, "FRECUENCIA "
+    End With
 End Sub
