@@ -53,8 +53,8 @@ Private Const NOMBRE_HOJA_PROCESADO As String = "Procesado"
 Private Const NOMBRE_HOJA_FRECUENCIAS As String = "Frecuencias de comunicacion"
 
 Private Const DIBUJAR_SECTORES As Boolean = True
-Private Const RADIO_SECTOR_M As Double = 800        ' radio de la cuña en metros
-Private Const ANCHO_SECTOR_GRADOS As Double = 120   ' apertura de la cuña
+Private Const RADIO_SECTOR_M As Double = 800        ' radio del vector en metros
+Private Const ANCHO_SECTOR_GRADOS As Double = 120   ' apertura del vector
 Private Const PI_VALOR As Double = 3.14159265358979
 
 Public Sub ProcesarCDRTelcel()
@@ -84,7 +84,7 @@ Public Sub ProcesarCDRTelcel()
     lastRow = wsProcesado.Cells(wsProcesado.Rows.Count, COL_NUMA).End(xlUp).Row
     If lastRow <= headerRow Then
         ConfigurarEntornoRapido False
-        MsgBox "No quedaron registros despues de la limpieza inicial (¿el archivo estaba vacio o el " & _
+        MsgBox "No quedaron registros despues de la limpieza inicial (" & ChrW(191) &"el archivo estaba vacio o el " & _
                "formato de telefono no coincide con 10 digitos?).", vbExclamation
         Exit Sub
     End If
@@ -190,7 +190,8 @@ Private Function PrepararHojaProcesado(ByVal wsOriginal As Worksheet) As Workshe
     lastRow = wsProcesado.Cells(wsProcesado.Rows.Count, 1).End(xlUp).Row
     For i = lastRow To headerRow + 1 Step -1
         valorColA = Trim(CStr(wsProcesado.Cells(i, 1).Value))
-        If Not (valorColA = "Telefono" Or (IsNumeric(valorColA) And Len(valorColA) = 10)) Then
+        ' If Not (valorColA = "Telefono" Or (IsNumeric(valorColA) And Len(valorColA) = 10)) Then
+        If Not (EsFilaEncabezado(wsProcesado, i) Or (IsNumeric(valorColA) And Len(valorColA) = 10)) Then
             wsProcesado.Rows(i).Delete
         End If
     Next i
@@ -200,8 +201,11 @@ End Function
 
 Private Function LocalizarFilaEncabezados(ByVal ws As Worksheet) As Long
     Dim i As Long
-    For i = 1 To ws.UsedRange.Rows.Count
-        If ws.Cells(i, 1).Value = "Telefono" And ws.Cells(i, 2).Value = "Tipo" Then
+    Dim ultima As Long
+
+    ultima = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    For i = 1 To ultima
+        If EsFilaEncabezado(ws, i) Then
             LocalizarFilaEncabezados = i
             Exit Function
         End If
@@ -209,8 +213,18 @@ Private Function LocalizarFilaEncabezados(ByVal ws As Worksheet) As Long
     LocalizarFilaEncabezados = 0
 End Function
 
+' Tolera espacios al final, espacios no separables, mayusculas y el acento de "Telefono"
+Private Function EsFilaEncabezado(ByVal ws As Worksheet, ByVal fila As Long) As Boolean
+    Dim a As String, b As String
+    a = LCase(Trim(Replace(ws.Cells(fila, 1).Text, ChrW(160), " ")))
+    b = LCase(Trim(Replace(ws.Cells(fila, 2).Text, ChrW(160), " ")))
+    EsFilaEncabezado = (a Like "tel?fono*") And (b = "tipo")
+End Function
+
 Private Sub InsertarColumnasDeTrabajo(ByVal ws As Worksheet, ByVal headerRow As Long)
 
+    ' Algunos exports traen un encabezado combinado sobre LATITUD/LONGITUD detectado en CDR del 2019 a 2022
+    ws.Rows(headerRow).UnMerge
     ws.Columns("C:E").Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove   ' SUBTIPO, SENTIDO, COLOR
     ws.Columns("H:L").Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove   ' NUMBIFETEL..PROVEEDOR
     ws.Columns("N").Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove     ' DIA
@@ -243,6 +257,13 @@ Private Sub InsertarColumnasDeTrabajo(ByVal ws As Worksheet, ByVal headerRow As 
         .Cells(headerRow, COL_AZIMUTH).Value = "AZIMUTH"
         .Cells(headerRow, COL_BTS).Value = "BTS"
         .Cells(headerRow, COL_BTS_AZIMUTH).Value = "BTS / AZIMUTH"
+
+        .Cells(headerRow, COL_NUMERO_A).Value = "NUMERO A"
+        .Cells(headerRow, COL_IMEI).Value = "IMEI"
+        .Cells(headerRow, COL_LATITUD).Value = "LATITUD"
+        .Cells(headerRow, COL_LONGITUD).Value = "LONGITUD"
+        .Cells(headerRow, COL_NUMERO_A_COPIA).Value = "NUMERO A COPIA"
+        .Cells(headerRow, COL_NUMB_COPIA).Value = "NUMB COPIA"
 
         .Columns(COL_NUMERO_A).NumberFormat = "0"
         .Columns(COL_NUMB).NumberFormat = "0"
@@ -686,6 +707,12 @@ Private Sub GenerarKML(ByVal wsFrecuencias As Worksheet, ByVal celdaInicio As St
     Dim rutaKml As Variant
     Dim kml As String
 
+    Dim dicBTS As Object
+    Dim btsContador As Long
+    Dim claveBTS As String
+    Dim btsNum As Long
+    Dim nombreAntena As String, nombreSector As String
+
     On Error GoTo Falla
 
     Set ini = wsFrecuencias.Range(celdaInicio)
@@ -703,7 +730,16 @@ Private Sub GenerarKML(ByVal wsFrecuencias As Worksheet, ByVal celdaInicio As St
         End If
     Next i
     If maxFreq = 0 Then maxFreq = 1
-
+    'Aquiiii
+    Set dicBTS = CreateObject("Scripting.Dictionary")
+    For i = 1 To UBound(datos, 1)
+        claveBTS = CStr(datos(i, 1))
+        If claveBTS <> "" And Not dicBTS.Exists(claveBTS) Then
+            btsContador = btsContador + 1
+            dicBTS.Add claveBTS, btsContador
+        End If
+    Next i
+    'Aquiiiiii
     For i = 1 To UBound(datos, 1)
         partes = Split(CStr(datos(i, 1)), ", ")   ' "Latitud, Longitud"
         If UBound(partes) <> 1 Then
@@ -718,16 +754,24 @@ Private Sub GenerarKML(ByVal wsFrecuencias As Worksheet, ByVal celdaInicio As St
                 azText = Trim(CStr(datos(i, 2)))
                 escala = 0.7 + 1.3 * (freq / maxFreq)
 
+                If dicBTS.Exists(CStr(datos(i, 1))) Then
+                    btsNum = dicBTS(CStr(datos(i, 1)))
+                Else
+                    btsNum = 0
+                End If
+                nombreAntena = "Antena " & (escritas + 1) & " (" & freq & "), BTS " & btsNum
+                nombreSector = "Sector " & (escritas + 1) & " (" & freq & "), BTS " & btsNum
+
                 kmlAntenas = kmlAntenas & _
-                    "<Placemark><name>" & EscaparXML("Antena " & (escritas + 1) & " (" & freq & ")") & "</name>" & _
+                    "<Placemark><name>" & EscaparXML(nombreAntena) & "</name>" & _
                     "<description>" & EscaparXML("Frecuencia: " & freq & " | Azimuth: " & azText & _
-                                                 " | Coordenadas: " & CStr(datos(i, 1))) & "</description>" & _
+                                                 " | Coordenadas: " & CStr(datos(i, 1)) & " | BTS: " & btsNum) & "</description>" & _
                     "<Style><IconStyle><scale>" & FormatoCoord(escala) & "</scale></IconStyle></Style>" & _
                     "<Point><coordinates>" & FormatoCoord(lon) & "," & FormatoCoord(lat) & ",0</coordinates></Point>" & _
                     "</Placemark>" & vbCrLf
 
-                If DIBUJAR_SECTORES And IsNumeric(azText) And azText <> "" Then
-                    kmlSectores = kmlSectores & ConstruirSectorKML(lat, lon, CDbl(Val(azText)), freq, escritas + 1)
+                If DIBUJAR_SECTORES And AzimuthValido(azText) Then
+                    kmlSectores = kmlSectores & ConstruirSectorKML(lat, lon, Val(azText), nombreSector)
                 End If
 
                 escritas = escritas + 1
@@ -768,7 +812,7 @@ Private Sub GenerarKML(ByVal wsFrecuencias As Worksheet, ByVal celdaInicio As St
 
     If Dir(CStr(rutaKml)) <> "" Then
         If Not ArchivoDisponible(CStr(rutaKml)) Then
-            MsgBox "El archivo esta abierto en otro programa (¿Google Earth?). Cierralo e intenta de nuevo.", vbExclamation
+            MsgBox "El archivo esta abierto en otro programa (" & ChrW(191) &"Google Earth?). Cierralo e intenta de nuevo.", vbExclamation
             Exit Sub
         End If
     End If
@@ -825,7 +869,7 @@ Private Function DMSaDecimal(ByVal texto As String, ByVal esLongitud As Boolean,
 End Function
 
 Private Function ConstruirSectorKML(ByVal lat As Double, ByVal lon As Double, ByVal azimuth As Double, _
-                                     ByVal freq As Long, ByVal numero As Long) As String
+                                     ByVal nombre As String) As String
     Dim coords As String
     Dim ang As Double, desde As Double, hasta As Double
     Dim latP As Double, lonP As Double
@@ -844,11 +888,27 @@ Private Function ConstruirSectorKML(ByVal lat As Double, ByVal lon As Double, By
     coords = coords & FormatoCoord(lonP) & "," & FormatoCoord(latP) & ",0 "
     coords = coords & FormatoCoord(lon) & "," & FormatoCoord(lat) & ",0"
 
-    ConstruirSectorKML = "<Placemark><name>" & EscaparXML("Sector " & numero & " (" & freq & ")") & "</name>" & _
-        "<Style><LineStyle><color>ff00a5ff</color><width>1</width></LineStyle>" & _
-        "<PolyStyle><color>5500a5ff</color></PolyStyle></Style>" & _
+    ' Para el Naranja
+    'ConstruirSectorKML = "<Placemark><name>" & EscaparXML(nombre) & "</name>" & _
+    '    "<Style><LineStyle><color>ff00a5ff</color><width>1</width></LineStyle>" & _
+    '    "<PolyStyle><color>5500a5ff</color></PolyStyle></Style>" & _
+    '    "<Polygon><outerBoundaryIs><LinearRing><coordinates>" & coords & _
+    '    "</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>" & vbCrLf
+    
+    'Para Rojo
+    'ConstruirSectorKML = "<Placemark><name>" & EscaparXML(nombre) & "</name>" & _
+    '    "<Style><LineStyle><color>ff0000ff</color><width>1</width></LineStyle>" & _
+    '    "<PolyStyle><color>550000ff</color></PolyStyle></Style>" & _
+    '    "<Polygon><outerBoundaryIs><LinearRing><coordinates>" & coords & _
+    '    "</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>" & vbCrLf
+    
+    'Para Azul
+    ConstruirSectorKML = "<Placemark><name>" & EscaparXML(nombre) & "</name>" & _
+        "<Style><LineStyle><color>ffff0000</color><width>1</width></LineStyle>" & _
+        "<PolyStyle><color>55ff0000</color></PolyStyle></Style>" & _
         "<Polygon><outerBoundaryIs><LinearRing><coordinates>" & coords & _
         "</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>" & vbCrLf
+    
 End Function
 
 Private Sub PuntoDestino(ByVal lat As Double, ByVal lon As Double, ByVal rumboGrados As Double, _
@@ -1017,3 +1077,18 @@ Private Sub CrearPivotCoordenadasPorEtapa(ByVal wsDestino As Worksheet, ByVal da
         .PivotFields("BTS").AutoSort xlDescending, "FRECUENCIA "
     End With
 End Sub
+
+Private Function AzimuthValido(ByVal azText As String) As Boolean
+    Dim limpio As String
+    Dim primerChar As String
+
+    limpio = Trim(azText)
+    If limpio = "" Then Exit Function
+
+    primerChar = Left(limpio, 1)
+    If primerChar Like "[0-9]" Then
+        AzimuthValido = True
+    ElseIf primerChar = "-" And Len(limpio) > 1 And Mid(limpio, 2, 1) Like "[0-9]" Then
+        AzimuthValido = True   ' negativo real (poco comun, pero no se descarta)
+    End If
+End Function
